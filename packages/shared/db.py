@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import threading
 from typing import Iterator, Sequence
 
-from sqlalchemy import create_engine, insert as sa_insert
-from sqlalchemy.engine import Engine
+from sqlalchemy import create_engine, insert as sa_insert, text
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from packages.shared.config import get_settings
@@ -88,3 +89,67 @@ def reset_engine_for_tests(url: str) -> None:
     global _engine, _SessionLocal  # pylint: disable=global-statement
     _engine = create_engine(url, pool_pre_ping=True, future=True)
     _SessionLocal = sessionmaker(bind=_engine, autoflush=False, expire_on_commit=False)
+
+
+RUN_SIGNALS_ADVISORY_LOCK_ID = 6004512906848782663  # 0x53544F434B534947 ('STOCKSIG')
+_sqlite_thread_lock = threading.Lock()
+
+
+@contextmanager
+def run_signals_lock(bind: Engine | Connection | None = None) -> Iterator[bool]:
+    """Acquire a run-signals execution lock.
+
+    PostgreSQL:
+        Uses a dedicated Engine connection to acquire a non-blocking session-level
+        advisory lock via `pg_try_advisory_lock`. The lock is held on that dedicated
+        connection for the duration of the context block and released on exit via
+        `pg_advisory_unlock`. If PostgreSQL terminates the connection or the process
+        dies, the advisory lock is automatically released by PostgreSQL.
+
+    SQLite / Other:
+        Uses an in-process `threading.Lock` to serialize threads within the same Python
+        process. NOTE: This does NOT protect against separate OS processes; distributed
+        cross-process locking requires PostgreSQL in production.
+
+    Yields:
+        bool: True if the lock was acquired, False otherwise.
+    """
+    engine: Engine
+    if bind is None:
+        engine = get_engine()
+    elif isinstance(bind, Engine):
+        engine = bind
+    elif hasattr(bind, "engine") and isinstance(bind.engine, Engine):
+        engine = bind.engine
+    else:
+        engine = get_engine()
+
+    dialect = engine.dialect.name
+    if dialect == "postgresql":
+        with engine.connect() as conn:
+            acquired = conn.execute(
+                text("SELECT pg_try_advisory_lock(:lock_id)"),
+                {"lock_id": RUN_SIGNALS_ADVISORY_LOCK_ID},
+            ).scalar()
+            if not acquired:
+                yield False
+                return
+            try:
+                yield True
+            finally:
+                try:
+                    conn.execute(
+                        text("SELECT pg_advisory_unlock(:lock_id)"),
+                        {"lock_id": RUN_SIGNALS_ADVISORY_LOCK_ID},
+                    )
+                except Exception:  # pylint: disable=broad-exception-caught
+                    pass
+    else:
+        acquired = _sqlite_thread_lock.acquire(blocking=False)
+        if not acquired:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            _sqlite_thread_lock.release()

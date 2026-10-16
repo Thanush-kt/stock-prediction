@@ -15,6 +15,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -205,6 +206,13 @@ class Order(Base):
     __table_args__ = (
         Index("ix_orders_status", "status"),
         Index("ix_orders_symbol_submitted_at", "symbol", "submitted_at"),
+        Index(
+            "uq_orders_signal_id",
+            "signal_id",
+            unique=True,
+            postgresql_where=text("signal_id IS NOT NULL"),
+            sqlite_where=text("signal_id IS NOT NULL"),
+        ),
     )
 
 

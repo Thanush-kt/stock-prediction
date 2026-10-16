@@ -1,6 +1,8 @@
 """Phase 3 signal-engine CLI subcommands."""
 from __future__ import annotations
 
+import datetime as dt
+
 import typer
 from sqlalchemy import select
 
@@ -22,6 +24,9 @@ def register(app: typer.Typer) -> None:
         dry_run: bool = typer.Option(
             False, "--dry-run", help="Skip Alpaca submission; mark orders dry_run."
         ),
+        as_of: str | None = typer.Option(
+            None, "--as-of", help="Optional ISO reference datetime for validation."
+        ),
     ) -> None:
         settings = get_settings()
         alpaca: AlpacaClient | None = None
@@ -30,8 +35,12 @@ def register(app: typer.Typer) -> None:
         elif not dry_run:
             typer.echo("WARNING: ALPACA_KEY_ID/SECRET not set; running in dry-run mode.", err=True)
 
+        as_of_dt: dt.datetime | None = None
+        if as_of:
+            as_of_dt = dt.datetime.fromisoformat(as_of)
+
         with session_scope() as session:
-            summary = run_once(session, model_version=model_version, alpaca=alpaca)
+            summary = run_once(session, model_version=model_version, alpaca=alpaca, as_of=as_of_dt)
         typer.echo(
             f"run-signals: halted={summary.halted} signals={summary.n_signals} "
             f"(buy={summary.n_buy} sell={summary.n_sell} hold={summary.n_hold}) "
