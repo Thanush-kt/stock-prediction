@@ -45,3 +45,12 @@ export interface EquityPoint {
   n_open_positions: number;
   halted: boolean;
 }
+
+export interface Prediction {
+  id: number;
+  symbol: string;
+  ts: string;
+  model_version: string;
+  score: number;
+  label_pred: number;
+}

@@ -56,5 +56,14 @@ class EquityPoint(_ApiModel):
     halted: bool
 
 
+class PredictionOut(_ApiModel):
+    id: int
+    symbol: str
+    ts: dt.datetime
+    model_version: str
+    score: float
+    label_pred: int
+
+
 class HealthOut(BaseModel):
     status: str = "ok"

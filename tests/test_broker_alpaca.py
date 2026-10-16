@@ -103,3 +103,65 @@ def test_get_order_uses_id_in_path():
     )
     out = _client().get_order("abc-123")
     assert out["status"] == "filled"
+
+
+@responses.activate
+def test_submit_market_order_payload_shape():
+    responses.add(
+        responses.POST,
+        f"{BASE}/v2/orders",
+        json={"id": "mkt-123", "status": "accepted"},
+        status=200,
+    )
+    out = _client().submit_market_order(
+        symbol="AAPL", qty=10, side="sell", client_order_id="sp-1-aapl"
+    )
+    assert out["id"] == "mkt-123"
+    req = responses.calls[0].request
+    body = req.body.decode() if isinstance(req.body, bytes) else req.body
+    assert '"symbol": "AAPL"' in body
+    assert '"qty": 10' in body
+    assert '"side": "sell"' in body
+    assert '"type": "market"' in body
+    assert '"client_order_id": "sp-1-aapl"' in body
+    assert "bracket" not in body
+    assert "take_profit" not in body
+    assert "stop_loss" not in body
+
+
+@responses.activate
+def test_submit_bracket_order_with_client_order_id():
+    responses.add(
+        responses.POST,
+        f"{BASE}/v2/orders",
+        json={"id": "br-456", "status": "accepted"},
+        status=200,
+    )
+    out = _client().submit_bracket_order(
+        symbol="MSFT", qty=5, side="buy",
+        take_profit=420.0, stop_loss=390.0,
+        client_order_id="sp-2-msft",
+    )
+    assert out["id"] == "br-456"
+    req = responses.calls[0].request
+    body = req.body.decode() if isinstance(req.body, bytes) else req.body
+    assert '"client_order_id": "sp-2-msft"' in body
+
+
+@responses.activate
+def test_4xx_sets_is_ambiguous_false():
+    responses.add(responses.POST, f"{BASE}/v2/orders", status=422, json={"message": "insufficient qty"})
+    with pytest.raises(AlpacaError) as exc_info:
+        _client().submit_market_order(symbol="AAPL", qty=10, side="sell")
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.is_ambiguous is False
+
+
+@responses.activate
+def test_5xx_sets_is_ambiguous_true():
+    responses.add(responses.POST, f"{BASE}/v2/orders", status=500)
+    responses.add(responses.POST, f"{BASE}/v2/orders", status=500)
+    with pytest.raises(AlpacaError) as exc_info:
+        _client().submit_market_order(symbol="AAPL", qty=10, side="sell")
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.is_ambiguous is True

@@ -8,13 +8,13 @@
     "serve": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "./.venv/bin/uvicorn services.api.main:app --reload --host 127.0.0.1 --port 8000"
+        "command": "uv run uvicorn services.api.main:app --reload --host 127.0.0.1 --port 8000"
       }
     },
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "./.venv/bin/pytest tests/test_api_*.py -q"
+        "command": "uv run pytest tests/test_api_*.py -q"
       }
     }
   }

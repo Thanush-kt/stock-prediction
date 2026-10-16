@@ -3,6 +3,11 @@
 /* Tailwind v4 is configured in CSS; this replaces the old tailwind.config.ts theme. */
 @theme {
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 :root {

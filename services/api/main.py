@@ -1,10 +1,11 @@
 """FastAPI app factory for the Phase 3.5 dashboard shim."""
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from services.api.routers import equity, health, orders, positions, signals
+from services.api.deps import get_current_user
+from services.api.routers import equity, health, orders, positions, predictions, signals
 
 
 def create_app() -> FastAPI:
@@ -19,11 +20,25 @@ def create_app() -> FastAPI:
         allow_methods=["GET"],
         allow_headers=["*"],
     )
+    # Public liveness probe
     application.include_router(health.router, tags=["health"])
-    application.include_router(positions.router, tags=["positions"])
-    application.include_router(signals.router, tags=["signals"])
-    application.include_router(orders.router, tags=["orders"])
-    application.include_router(equity.router, tags=["equity"])
+
+    # Protected routes requiring verified Clerk session token
+    application.include_router(
+        positions.router, tags=["positions"], dependencies=[Depends(get_current_user)]
+    )
+    application.include_router(
+        signals.router, tags=["signals"], dependencies=[Depends(get_current_user)]
+    )
+    application.include_router(
+        orders.router, tags=["orders"], dependencies=[Depends(get_current_user)]
+    )
+    application.include_router(
+        equity.router, tags=["equity"], dependencies=[Depends(get_current_user)]
+    )
+    application.include_router(
+        predictions.router, tags=["predictions"], dependencies=[Depends(get_current_user)]
+    )
     return application
 
 

@@ -7,13 +7,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from packages.shared.models import Signal, Ticker
-from services.api.deps import get_session
+from services.api.deps import ClerkUser, get_current_user, get_session
 from services.api.main import app
 
 
 @pytest.fixture(name="client")
 def fixture_client(session):
     app.dependency_overrides[get_session] = lambda: session
+    app.dependency_overrides[get_current_user] = lambda: ClerkUser(user_id="test_user")
     yield TestClient(app)
     app.dependency_overrides.clear()
 

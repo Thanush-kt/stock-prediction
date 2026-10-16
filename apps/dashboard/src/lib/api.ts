@@ -1,12 +1,42 @@
-import type { EquityPoint, Order, Position, Signal } from '@/types/api';
+import type { EquityPoint, Order, Position, Prediction, Signal } from '@/types/api';
 
 const BASE =
   typeof window === 'undefined'
     ? `http://${process.env.API_HOST ?? '127.0.0.1'}:${process.env.API_PORT ?? '8000'}`
     : '/api';
 
-async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { cache: 'no-store' });
+async function getAuthToken(): Promise<string | null> {
+  if (typeof window === 'undefined') {
+    try {
+      const { auth } = await import('@clerk/nextjs/server');
+      const { getToken } = await auth();
+      return await getToken();
+    } catch {
+      return null;
+    }
+  } else {
+    try {
+      const clerk = (window as unknown as {
+        Clerk?: { session?: { getToken: () => Promise<string | null> } };
+      }).Clerk;
+      return (await clerk?.session?.getToken()) ?? null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function getJson<T>(path: string, tokenOverride?: string | null): Promise<T> {
+  const token = tokenOverride !== undefined ? tokenOverride : await getAuthToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${BASE}${path}`, {
+    cache: 'no-store',
+    headers,
+  });
   if (!res.ok) {
     throw new Error(`API ${path} failed: ${res.status}`);
   }
@@ -15,6 +45,14 @@ async function getJson<T>(path: string): Promise<T> {
 
 export const api = {
   positions: () => getJson<Position[]>('/positions'),
+  predictions: (params: { limit?: number; symbol?: string; model_version?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.limit) q.set('limit', String(params.limit));
+    if (params.symbol) q.set('symbol', params.symbol);
+    if (params.model_version) q.set('model_version', params.model_version);
+    const qs = q.toString();
+    return getJson<Prediction[]>(`/predictions${qs ? `?${qs}` : ''}`);
+  },
   signals: (params: { limit?: number; decision?: 'BUY' | 'SELL' | 'HOLD' } = {}) => {
     const q = new URLSearchParams();
     if (params.limit) q.set('limit', String(params.limit));
