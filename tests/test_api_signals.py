@@ -66,3 +66,37 @@ def test_rationale_roundtrip(client, session):
 def test_invalid_decision_rejected(client):
     resp = client.get("/signals", params={"decision": "WAT"})
     assert resp.status_code == 422
+
+
+def test_filter_by_symbol(client, session):
+    session.add(Ticker(symbol="AAPL", active=True))
+    session.add(Ticker(symbol="MSFT", active=True))
+    session.flush()
+    session.add(
+        Signal(
+            symbol="AAPL",
+            ts=dt.datetime(2024, 5, 1, tzinfo=dt.timezone.utc),
+            model_version="v1",
+            score=0.7,
+            decision="BUY",
+            rationale={},
+        )
+    )
+    session.add(
+        Signal(
+            symbol="MSFT",
+            ts=dt.datetime(2024, 5, 2, tzinfo=dt.timezone.utc),
+            model_version="v1",
+            score=0.4,
+            decision="HOLD",
+            rationale={},
+        )
+    )
+    session.commit()
+
+    resp = client.get("/signals", params={"symbol": "MSFT"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["symbol"] == "MSFT"
+

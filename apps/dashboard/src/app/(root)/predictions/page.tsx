@@ -1,6 +1,6 @@
 import React from 'react';
 import { api } from '@/lib/api';
-import { PredictionsTable } from '@/components/PredictionsTable';
+import { PredictionsDashboardView } from '@/components/PredictionsDashboardView';
 import { ErrorMessage } from '@/components/ErrorMessage';
 import type { Prediction } from '@/types/api';
 
@@ -19,7 +19,7 @@ export default async function PredictionsPage() {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-slate-800/80 pb-5">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
+          <div className="text-xs font-semibold uppercase tracking-wider text-emerald-400 font-mono">
             Quantitative Inference
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white mt-1">
@@ -39,9 +39,9 @@ export default async function PredictionsPage() {
       {error && <ErrorMessage message={error} />}
 
       {predictions ? (
-        <PredictionsTable initialPredictions={predictions} />
+        <PredictionsDashboardView initialPredictions={predictions} />
       ) : !error ? (
-        <PredictionsTable initialPredictions={[]} />
+        <PredictionsDashboardView initialPredictions={[]} />
       ) : null}
     </div>
   );

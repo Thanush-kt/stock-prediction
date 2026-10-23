@@ -141,3 +141,125 @@ def test_since_filter_respected(session):
     cutoff_ts = pd.Timestamp(cutoff)
     ts_naive = pd.to_datetime(df["ts"]).dt.tz_localize(None)
     assert (ts_naive >= cutoff_ts).all()
+
+
+def test_full_history_inference_returns_eligible_rows(session):
+    _insert_synth(session, "AAPL", n_days=60)
+    df_inf = build_feature_matrix(session, since=None, require_target=False)
+    assert not df_inf.empty
+    # The newest bar should be present in inference mode
+    latest_row = df_inf.iloc[-1]
+    assert pd.isna(latest_row["target"])
+    for col in FEATURE_COLUMNS:
+        assert not pd.isna(latest_row[col]), f"{col} should not be NaN on latest row"
+
+
+def test_since_filter_oct_20_returns_eligible_rows(session):
+    # Insert 60 days of data ending on 2026-10-20
+    base_ts = dt.datetime(2026, 8, 22, 4, 0, tzinfo=dt.timezone.utc)
+    rng = np.random.default_rng(42)
+    session.add(Ticker(symbol="AAPL", active=True))
+    session.flush()
+
+    closes = 200.0 + np.cumsum(rng.normal(0.05, 1.0, 60))
+    for i in range(60):
+        ts = base_ts + dt.timedelta(days=i)
+        c = float(closes[i])
+        session.add(
+            PriceBar(
+                symbol="AAPL",
+                ts=ts,
+                open=c - 0.2,
+                high=c + 0.5,
+                low=c - 0.5,
+                close=c,
+                volume=1_000_000.0 + rng.uniform(-50_000, 50_000),
+                source="synth",
+            )
+        )
+        for name in INDICATOR_NAMES:
+            session.add(Indicator(symbol="AAPL", ts=ts, name=name, value=50.0))
+    session.flush()
+
+    cutoff = dt.date(2026, 10, 20)
+    df_filtered = build_feature_matrix(session, since=cutoff, require_target=False)
+    assert not df_filtered.empty, "build_feature_matrix with since=2026-10-20 should not be empty"
+
+    # All returned rows must have date >= 2026-10-20
+    ts_dates = pd.to_datetime(df_filtered["ts"]).dt.date
+    assert (ts_dates >= cutoff).all()
+
+    # Features must be fully formed without NaN
+    for col in FEATURE_COLUMNS:
+        assert df_filtered[col].isna().sum() == 0, f"Column {col} has NaN in filtered output"
+
+
+def test_filtered_matrix_matches_full_history_matrix(session):
+    _insert_synth(session, "AAPL", n_days=100)
+    cutoff = dt.date(2024, 3, 15)
+
+    df_full = build_feature_matrix(session, since=None, require_target=False)
+    df_filtered = build_feature_matrix(session, since=cutoff, require_target=False)
+
+    assert not df_filtered.empty
+    ts_dates = pd.to_datetime(df_full["ts"]).dt.date
+    df_full_sliced = df_full[ts_dates >= cutoff].reset_index(drop=True)
+
+    pd.testing.assert_frame_equal(df_filtered, df_full_sliced)
+
+
+def test_training_still_excludes_rows_without_known_target(session):
+    _insert_synth(session, "AAPL", n_days=60)
+    cutoff = dt.date(2024, 2, 1)
+
+    df_train_full = build_feature_matrix(session, since=None, require_target=True)
+    df_train_filtered = build_feature_matrix(session, since=cutoff, require_target=True)
+
+    # Neither should have any NaN targets
+    assert df_train_full["target"].isna().sum() == 0
+    assert df_train_filtered["target"].isna().sum() == 0
+    assert (df_train_full["target"].isin([0, 1])).all()
+    assert (df_train_filtered["target"].isin([0, 1])).all()
+
+    # The newest bar must not be present in training
+    df_inf = build_feature_matrix(session, since=None, require_target=False)
+    latest_ts = df_inf["ts"].max()
+    assert latest_ts not in df_train_full["ts"].values
+
+
+def test_sentiment_no_lookahead_leakage(session):
+    _insert_synth(session, "AAPL", n_days=40, with_news=False)
+
+    # Get feature matrix before adding future news
+    df_before = build_feature_matrix(session, require_target=False)
+    latest_ts = df_before["ts"].max()
+
+    # Add news on day T+1 (future news after latest price bar)
+    future_ts = latest_ts + dt.timedelta(days=1)
+    ni = NewsItem(
+        symbol="AAPL",
+        source="future-wire",
+        headline="Future blockbuster news",
+        url="https://e.example/aapl/future",
+        published_at=future_ts,
+    )
+    session.add(ni)
+    session.flush()
+    session.add(
+        Sentiment(
+            news_item_id=ni.id,
+            model="vader-1.0",
+            compound=0.95,
+            pos=0.9,
+            neu=0.1,
+            neg=0.0,
+        )
+    )
+    session.flush()
+
+    # Build features after future news was added
+    df_after = build_feature_matrix(session, require_target=False)
+
+    # The feature rows for historical dates must be completely identical
+    pd.testing.assert_frame_equal(df_before, df_after)
+

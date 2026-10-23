@@ -54,6 +54,18 @@ class Settings(BaseSettings):
         return [s.strip().upper() for s in self.watchlist_raw.split(",") if s.strip()]
 
     @property
+    def watchlist_alpaca_eligible(self) -> list[str]:
+        """Return watchlist symbols that Alpaca paper trading can route (US equities only).
+
+        Excluded suffixes:
+          .NS  — NSE-listed Indian equities
+          -USD — Crypto pairs (BTC-USD, ETH-USD, …)
+          =F   — Commodity futures (GC=F, CL=F, …)
+        """
+        _excluded_suffixes = (".NS", "-USD", "=F")
+        return [s for s in self.watchlist if not any(s.endswith(e) for e in _excluded_suffixes)]
+
+    @property
     def resolved_clerk_jwks_url(self) -> str:
         if self.clerk_jwks_url:
             return self.clerk_jwks_url

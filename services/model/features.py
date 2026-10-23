@@ -44,7 +44,7 @@ FEATURE_COLUMNS: list[str] = (
 )
 
 
-def _load_prices(session: Session, since: dt.date | None) -> pd.DataFrame:
+def _load_prices(session: Session, since: dt.date | None = None) -> pd.DataFrame:
     stmt = select(
         PriceBar.symbol, PriceBar.ts, PriceBar.close, PriceBar.volume
     ).order_by(PriceBar.symbol, PriceBar.ts)
@@ -56,7 +56,7 @@ def _load_prices(session: Session, since: dt.date | None) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["symbol", "ts", "close", "volume"])
 
 
-def _load_indicators_wide(session: Session, since: dt.date | None) -> pd.DataFrame:
+def _load_indicators_wide(session: Session, since: dt.date | None = None) -> pd.DataFrame:
     stmt = select(
         Indicator.symbol, Indicator.ts, Indicator.name, Indicator.value
     ).where(Indicator.name.in_(INDICATOR_NAMES))
@@ -75,7 +75,7 @@ def _load_indicators_wide(session: Session, since: dt.date | None) -> pd.DataFra
     return wide[INDICATOR_NAMES].reset_index()
 
 
-def _load_daily_sentiment(session: Session, since: dt.date | None) -> pd.DataFrame:
+def _load_daily_sentiment(session: Session, since: dt.date | None = None) -> pd.DataFrame:
     """Return one row per (symbol, calendar_day) with mean compound score."""
     stmt = select(
         NewsItem.symbol, NewsItem.published_at, Sentiment.compound
@@ -158,14 +158,18 @@ def build_feature_matrix(
     Inference passes ``require_target=False``: scoring the newest bar is the
     whole point of a live signal, and its target is unknowable by definition.
     Those rows carry ``target = pd.NA``.
+
+    When ``since`` is provided, full historical data is used to compute all lagged
+    returns, rolling statistics, and indicators, and then the completed matrix is
+    filtered to preserve eligible rows on or after ``since``.
     """
-    prices = _load_prices(session, since)
+    prices = _load_prices(session)
     if prices.empty:
         log.warning("build_feature_matrix: no price bars found")
         return pd.DataFrame(columns=["symbol", "ts", "target"] + FEATURE_COLUMNS)
 
-    indicators_wide = _load_indicators_wide(session, since)
-    sent_daily = _load_daily_sentiment(session, since)
+    indicators_wide = _load_indicators_wide(session)
+    sent_daily = _load_daily_sentiment(session)
 
     base = _add_price_features(prices)
     merged = base.merge(indicators_wide, on=["symbol", "ts"], how="left")
@@ -179,4 +183,17 @@ def build_feature_matrix(
         out["target"] = out["target"].astype(int)
     else:
         out["target"] = out["target"].astype("Int64")
+
+    if since is not None:
+        if isinstance(since, str):
+            since_date = dt.date.fromisoformat(since.split("T")[0].split(" ")[0])
+        elif isinstance(since, dt.datetime):
+            since_date = since.date()
+        elif isinstance(since, dt.date):
+            since_date = since
+        else:
+            since_date = pd.to_datetime(since).date()
+        ts_dates = pd.to_datetime(out["ts"]).dt.date
+        out = out[ts_dates >= since_date].reset_index(drop=True)
+
     return out

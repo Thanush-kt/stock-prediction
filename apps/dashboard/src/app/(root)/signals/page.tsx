@@ -1,6 +1,6 @@
 import React from 'react';
 import { api } from '@/lib/api';
-import { SignalsTable } from '@/components/SignalsTable';
+import { SignalsDashboardView } from '@/components/SignalsDashboardView';
 import { ErrorMessage } from '@/components/ErrorMessage';
 import type { Signal } from '@/types/api';
 
@@ -19,7 +19,7 @@ export default async function SignalsPage() {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-slate-800/80 pb-5">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
+          <div className="text-xs font-semibold uppercase tracking-wider text-emerald-400 font-mono">
             Disciplined Execution
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white mt-1">
@@ -39,9 +39,9 @@ export default async function SignalsPage() {
       {error && <ErrorMessage message={error} />}
 
       {signals ? (
-        <SignalsTable signals={signals} />
+        <SignalsDashboardView initialSignals={signals} />
       ) : !error ? (
-        <SignalsTable signals={[]} />
+        <SignalsDashboardView initialSignals={[]} />
       ) : null}
     </div>
   );

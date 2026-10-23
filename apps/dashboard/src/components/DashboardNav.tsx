@@ -7,6 +7,7 @@ import { Show, UserButton } from '@clerk/nextjs';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Portfolio' },
+  { href: '/stocks', label: 'Stocks' },
   { href: '/predictions', label: 'Predictions' },
   { href: '/signals', label: 'Signals' },
   { href: '/orders', label: 'Orders' },
