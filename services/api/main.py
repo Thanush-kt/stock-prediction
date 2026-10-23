@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from services.api.deps import get_current_user
-from services.api.routers import equity, health, orders, positions, predictions, signals
+from services.api.routers import equity, health, orders, positions, predictions, signals, stocks
 
 
 def create_app() -> FastAPI:
@@ -38,6 +38,9 @@ def create_app() -> FastAPI:
     )
     application.include_router(
         predictions.router, tags=["predictions"], dependencies=[Depends(get_current_user)]
+    )
+    application.include_router(
+        stocks.router, tags=["stocks"], dependencies=[Depends(get_current_user)]
     )
     return application
 

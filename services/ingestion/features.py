@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from packages.shared.db import upsert_ignore
 from packages.shared.logging import get_logger
 from packages.shared.models import Indicator, PriceBar
+from services.ingestion.prices import validate_bars
 
 log = get_logger(__name__)
 
@@ -29,6 +30,11 @@ INDICATOR_COLUMNS = {
     "SMA_200": "sma_200",
     "EMA_12": "ema_12",
     "EMA_26": "ema_26",
+    # ATR (14-period) — used by the risk analysis API endpoint.
+    # pandas-ta emits ATRr_14 (ratio-normalised) or ATR_14 depending on version;
+    # accept both so the pipeline survives library upgrades.
+    "ATRr_14": "atr_14",
+    "ATR_14": "atr_14",
 }
 
 
@@ -36,7 +42,10 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Compute all Phase 1 indicators. Input must have columns: open, high, low, close, volume."""
     if df.empty:
         return df
-    out = df.copy()
+    clean = validate_bars(df)
+    if clean.empty:
+        return pd.DataFrame()
+    out = clean.copy()
     out.ta.rsi(length=14, append=True)
     out.ta.macd(fast=12, slow=26, signal=9, append=True)
     out.ta.bbands(length=20, std=2, append=True)
@@ -44,6 +53,8 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         out.ta.sma(length=length, append=True)
     for length in (12, 26):
         out.ta.ema(length=length, append=True)
+    # ATR requires high/low/close columns which are always present in price_bars.
+    out.ta.atr(length=14, append=True)
     keep = [c for c in INDICATOR_COLUMNS if c in out.columns]
     return out[keep].rename(columns=INDICATOR_COLUMNS)
 
@@ -58,7 +69,7 @@ def load_bars(session: Session, symbol: str) -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume"])
     df = df.set_index("ts")
-    return df
+    return validate_bars(df, symbol=symbol)
 
 
 def upsert_indicators(session: Session, symbol: str, indicators_df: pd.DataFrame) -> int:

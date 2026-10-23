@@ -7,7 +7,15 @@ import pandas as pd
 import pytest
 
 from services.signal.validation import (
+    exchange_for_symbol,
+    exchange_timezone,
+    get_current_trading_session,
+    get_exchange_local_date,
+    get_next_trading_session_date,
+    get_nse_holidays,
     get_nyse_holidays,
+    get_previous_trading_session_date,
+    is_market_session_open,
     is_trading_day,
     trading_days_between,
     validate_prediction,
@@ -175,3 +183,82 @@ def test_validate_prediction_rejects_stale_trading_days():
     assert ok is False
     assert "stale_prediction" in str(err)
     assert "elapsed trading days (3) exceeds max allowed (1)" in str(err)
+
+
+def test_nse_holidays_and_trading_days():
+    nse_hols = get_nse_holidays(2024)
+    assert dt.date(2024, 1, 26) in nse_hols  # Republic Day
+    assert dt.date(2024, 8, 15) in nse_hols  # Independence Day
+    assert dt.date(2024, 10, 2) in nse_hols  # Gandhi Jayanti
+    assert dt.date(2024, 12, 25) in nse_hols  # Christmas
+
+    assert is_trading_day(dt.date(2024, 1, 26), exchange="NSE") is False
+    assert is_trading_day(dt.date(2024, 5, 1), exchange="NSE") is False  # Maharashtra Day
+    assert is_trading_day(dt.date(2024, 5, 2), exchange="NSE") is True   # Thursday
+
+
+def test_exchange_for_symbol_classification():
+    assert exchange_for_symbol("AAPL") == "NYSE"
+    assert exchange_for_symbol("MSFT") == "NYSE"
+    assert exchange_for_symbol("RELIANCE.NS") == "NSE"
+    assert exchange_for_symbol("TCS.BO") == "NSE"
+    assert exchange_for_symbol("BTC-USD") == "CRYPTO"
+    assert exchange_for_symbol("GC=F") == "COMMODITY"
+
+
+def test_exchange_timezone():
+    assert str(exchange_timezone("NYSE")) == "America/New_York"
+    assert str(exchange_timezone("NSE")) == "Asia/Kolkata"
+    assert str(exchange_timezone("CRYPTO")) == "UTC"
+
+
+def test_get_exchange_local_date():
+    # Indian bar at 18:30 UTC on Oct 15 is Oct 16 in IST
+    ts_utc = dt.datetime(2026, 10, 15, 18, 30, tzinfo=dt.timezone.utc)
+    local_d = get_exchange_local_date(ts_utc, exchange="NSE")
+    assert local_d == dt.date(2026, 10, 16)
+
+    # US bar at 04:00 UTC on Oct 21 is Oct 21 (or prior evening)
+    ts_us = dt.datetime(2026, 10, 21, 4, 0, tzinfo=dt.timezone.utc)
+    local_us = get_exchange_local_date(ts_us, exchange="NYSE")
+    assert local_us == dt.date(2026, 10, 21)
+
+
+def test_get_next_trading_session_date():
+    # Friday to Monday
+    fri = dt.date(2024, 5, 3)
+    next_d = get_next_trading_session_date(fri, exchange="NYSE")
+    assert next_d == dt.date(2024, 5, 6)
+
+    # Over holiday (Memorial Day on Monday 2024-05-27)
+    fri_holiday = dt.date(2024, 5, 24)
+    next_post_holiday = get_next_trading_session_date(fri_holiday, exchange="NYSE")
+    assert next_post_holiday == dt.date(2024, 5, 28)
+
+    # Crypto (24/7) Friday to Saturday
+    next_crypto = get_next_trading_session_date(fri, exchange="CRYPTO")
+    assert next_crypto == dt.date(2024, 5, 4)
+
+
+def test_get_current_trading_session():
+    # Wednesday during trading day
+    wed = dt.datetime(2024, 5, 1, 14, 0, tzinfo=dt.timezone.utc)
+    assert get_current_trading_session("NYSE", as_of=wed) == dt.date(2024, 5, 1)
+
+    # Saturday returns Friday
+    sat = dt.datetime(2024, 5, 4, 12, 0, tzinfo=dt.timezone.utc)
+    assert get_current_trading_session("NYSE", as_of=sat) == dt.date(2024, 5, 3)
+
+
+def test_is_market_session_open():
+    # NYSE 10:00 AM ET on Wednesday 2024-05-01 is 14:00 UTC
+    open_time = dt.datetime(2024, 5, 1, 14, 0, tzinfo=dt.timezone.utc)
+    assert is_market_session_open("NYSE", as_of=open_time) is True
+
+    # NYSE 05:00 AM ET on Wednesday 2024-05-01 is 09:00 UTC (pre-market)
+    pre_time = dt.datetime(2024, 5, 1, 9, 0, tzinfo=dt.timezone.utc)
+    assert is_market_session_open("NYSE", as_of=pre_time) is False
+
+    # Crypto is always open
+    assert is_market_session_open("CRYPTO", as_of=pre_time) is True
+

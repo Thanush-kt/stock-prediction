@@ -102,7 +102,7 @@ def test_healthz_is_public(auth_client):
 
 @pytest.mark.parametrize(
     "path",
-    ["/positions", "/signals", "/orders", "/equity", "/predictions"],
+    ["/positions", "/signals", "/orders", "/equity", "/predictions", "/stocks", "/predictions/latest"],
 )
 def test_missing_token_returns_401(auth_client, path):
     """Protected endpoints reject requests missing the Authorization header."""
@@ -171,7 +171,7 @@ def test_missing_subject_claim_returns_401(auth_client):
 
 @pytest.mark.parametrize(
     "path",
-    ["/positions", "/signals", "/orders", "/equity", "/predictions"],
+    ["/positions", "/signals", "/orders", "/equity", "/predictions", "/stocks", "/predictions/latest"],
 )
 def test_valid_token_accesses_protected_endpoints(auth_client, path):
     """Valid signed token successfully authenticates and accesses all protected endpoints."""

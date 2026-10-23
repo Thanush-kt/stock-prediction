@@ -85,21 +85,166 @@ def get_nyse_holidays(year: int) -> set[dt.date]:
     return holidays
 
 
-def is_trading_day(d: dt.date) -> bool:
-    """Return True if the date is a normal weekday and not an NYSE market holiday."""
+def get_nse_holidays(year: int) -> set[dt.date]:
+    """Return official/standard NSE India market holiday dates for a given year."""
+    holidays: set[dt.date] = {
+        dt.date(year, 1, 26),   # Republic Day
+        dt.date(year, 8, 15),   # Independence Day
+        dt.date(year, 10, 2),   # Mahatma Gandhi Jayanti
+        dt.date(year, 12, 25),  # Christmas
+    }
+    # Year-specific variable festivals (official NSE calendar)
+    if year == 2024:
+        holidays.update({
+            dt.date(2024, 1, 22), dt.date(2024, 3, 8), dt.date(2024, 3, 25),
+            dt.date(2024, 3, 29), dt.date(2024, 4, 11), dt.date(2024, 4, 17),
+            dt.date(2024, 5, 1), dt.date(2024, 5, 20), dt.date(2024, 6, 17),
+            dt.date(2024, 7, 17), dt.date(2024, 11, 1), dt.date(2024, 11, 15),
+            dt.date(2024, 11, 20),
+        })
+    elif year == 2025:
+        holidays.update({
+            dt.date(2025, 2, 26), dt.date(2025, 3, 14), dt.date(2025, 3, 31),
+            dt.date(2025, 4, 10), dt.date(2025, 4, 14), dt.date(2025, 4, 18),
+            dt.date(2025, 5, 1), dt.date(2025, 6, 7), dt.date(2025, 8, 27),
+            dt.date(2025, 10, 21), dt.date(2025, 10, 22), dt.date(2025, 11, 5),
+        })
+    elif year == 2026:
+        holidays.update({
+            dt.date(2026, 3, 15), dt.date(2026, 3, 20), dt.date(2026, 4, 3),
+            dt.date(2026, 4, 14), dt.date(2026, 5, 1), dt.date(2026, 5, 27),
+            dt.date(2026, 6, 26), dt.date(2026, 9, 15), dt.date(2026, 10, 20),
+            dt.date(2026, 11, 8), dt.date(2026, 11, 24),
+        })
+    return holidays
+
+
+def exchange_for_symbol(symbol: str) -> str:
+    """Classify the exchange / market segment from the symbol format.
+
+    Returns "NSE" for Indian stocks (.NS, .BO), "CRYPTO" for -USD pairs,
+    "COMMODITY" for =F futures, and "NYSE" for standard US equities.
+    """
+    sym = symbol.upper()
+    if sym.endswith(".NS") or sym.endswith(".BO"):
+        return "NSE"
+    if sym.endswith("-USD") or "-USD" in sym:
+        return "CRYPTO"
+    if sym.endswith("=F"):
+        return "COMMODITY"
+    return "NYSE"
+
+
+def exchange_timezone(exchange: str) -> zoneinfo.ZoneInfo:
+    """Return the primary timezone for the given exchange."""
+    if exchange == "NSE":
+        return zoneinfo.ZoneInfo("Asia/Kolkata")
+    if exchange == "CRYPTO":
+        return zoneinfo.ZoneInfo("UTC")
+    if exchange == "COMMODITY":
+        return zoneinfo.ZoneInfo("America/Chicago")
+    return zoneinfo.ZoneInfo("America/New_York")
+
+
+def is_trading_day(d: dt.date, exchange: str = "NYSE") -> bool:
+    """Return True if the date is a normal trading day for the given exchange.
+
+    - Weekends (Sat/Sun) are non-trading for all equity/commodity markets.
+    - NYSE checks official NYSE holiday list.
+    - NSE checks official NSE holiday list.
+    - Crypto operates 24/7 (weekends included).
+    - Other equities/commodities default to weekday-only without NYSE-specific holidays.
+    """
+    if exchange == "CRYPTO":
+        return True
     if d.weekday() >= 5:
         return False
-    return d not in get_nyse_holidays(d.year)
+    if exchange == "NYSE":
+        return d not in get_nyse_holidays(d.year)
+    if exchange == "NSE":
+        return d not in get_nse_holidays(d.year)
+    return True
 
 
-def trading_days_between(start_date: dt.date, end_date: dt.date) -> int:
+def get_exchange_local_date(ts: dt.datetime | dt.date | Any, exchange: str = "NYSE") -> dt.date:
+    """Convert ts into the exchange's local date."""
+    if isinstance(ts, dt.date) and not isinstance(ts, dt.datetime):
+        return ts
+    tz = exchange_timezone(exchange)
+    if isinstance(ts, pd.Timestamp):
+        ts = ts.to_pydatetime()
+    if not isinstance(ts, dt.datetime):
+        ts = dt.datetime.combine(ts, dt.time.min)
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=dt.timezone.utc)
+    return ts.astimezone(tz).date()
+
+
+def get_next_trading_session_date(d: dt.date, exchange: str = "NYSE") -> dt.date:
+    """Return the next trading day strictly after d for the given exchange."""
+    cur = d + dt.timedelta(days=1)
+    while not is_trading_day(cur, exchange=exchange):
+        cur += dt.timedelta(days=1)
+    return cur
+
+
+def get_previous_trading_session_date(d: dt.date, exchange: str = "NYSE") -> dt.date:
+    """Return the nearest trading day strictly before d for the given exchange."""
+    cur = d - dt.timedelta(days=1)
+    while not is_trading_day(cur, exchange=exchange):
+        cur -= dt.timedelta(days=1)
+    return cur
+
+
+def get_current_trading_session(exchange: str = "NYSE", as_of: dt.datetime | None = None) -> dt.date:
+    """Return the trading session date corresponding to as_of (defaults to now).
+
+    If as_of lands on a trading day:
+      - Returns that day's date.
+    If as_of lands on a weekend/holiday:
+      - Returns the previous completed trading day.
+    """
+    tz = exchange_timezone(exchange)
+    now_utc = as_of or dt.datetime.now(dt.timezone.utc)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=dt.timezone.utc)
+    now_local = now_utc.astimezone(tz)
+    local_date = now_local.date()
+    if is_trading_day(local_date, exchange=exchange):
+        return local_date
+    return get_previous_trading_session_date(local_date, exchange=exchange)
+
+
+def is_market_session_open(exchange: str = "NYSE", as_of: dt.datetime | None = None) -> bool:
+    """Check if the market is currently open for regular trading hours."""
+    if exchange == "CRYPTO":
+        return True
+    tz = exchange_timezone(exchange)
+    now_utc = as_of or dt.datetime.now(dt.timezone.utc)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=dt.timezone.utc)
+    now_local = now_utc.astimezone(tz)
+    local_date = now_local.date()
+    if not is_trading_day(local_date, exchange=exchange):
+        return False
+    local_time = now_local.time()
+    if exchange == "NYSE":
+        return dt.time(9, 30) <= local_time <= dt.time(16, 0)
+    if exchange == "NSE":
+        return dt.time(9, 15) <= local_time <= dt.time(15, 30)
+    if exchange == "COMMODITY":
+        return dt.time(9, 30) <= local_time <= dt.time(17, 0)
+    return False
+
+
+def trading_days_between(start_date: dt.date, end_date: dt.date, exchange: str = "NYSE") -> int:
     """Count market trading days in the half-open interval (start_date, end_date]."""
     if end_date <= start_date:
         return 0
     cur = start_date + dt.timedelta(days=1)
     count = 0
     while cur <= end_date:
-        if is_trading_day(cur):
+        if is_trading_day(cur, exchange=exchange):
             count += 1
         cur += dt.timedelta(days=1)
     return count
@@ -181,7 +326,12 @@ def validate_prediction(  # pylint: disable=too-many-arguments,too-many-locals,t
     as_of_ny_date = as_of_dt.astimezone(NY_TZ).date()
 
     calendar_days = (as_of_ny_date - pred_ny_date).days
-    trading_days = trading_days_between(pred_ny_date, as_of_ny_date)
+    exch = exchange_for_symbol(symbol)
+    trading_days = (
+        calendar_days
+        if exch == "CRYPTO"
+        else trading_days_between(pred_ny_date, as_of_ny_date, exchange=exch)
+    )
 
     if effective_max_trading_days is not None and trading_days > effective_max_trading_days:
         return False, (

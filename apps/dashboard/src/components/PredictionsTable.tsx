@@ -168,11 +168,13 @@ export function PredictionsTable({ initialPredictions }: PredictionsTableProps) 
             <table className="w-full text-sm text-left border-collapse min-w-[750px]">
               <thead>
                 <tr className="border-b border-slate-800/80 bg-slate-950/40 text-[11px] font-mono text-slate-400 uppercase tracking-wider">
-                  <th className="py-3 px-5">Timestamp</th>
+                  <th className="py-3 px-5">Data Cutoff</th>
                   <th className="py-3 px-5">Symbol</th>
-                  <th className="py-3 px-5">Forecast Direction</th>
-                  <th className="py-3 px-5 text-right">Probability (Confidence)</th>
-                  <th className="py-3 px-5">Model Version</th>
+                  <th className="py-3 px-5">Target Session</th>
+                  <th className="py-3 px-5">Forecast</th>
+                  <th className="py-3 px-5 text-right">Probability</th>
+                  <th className="py-3 px-5 text-center">Outcome</th>
+                  <th className="py-3 px-5">Model</th>
                   <th className="py-3 px-5 text-right">Details</th>
                 </tr>
               </thead>
@@ -184,16 +186,30 @@ export function PredictionsTable({ initialPredictions }: PredictionsTableProps) 
                   const scoreFormatted = scoreVal.toFixed(3);
                   const meterPct = Math.min(Math.max(scoreVal * 100, 5), 100);
 
+                  const targetSessionFormatted = p.target_session
+                    ? new Date(p.target_session).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })
+                    : '—';
+
+                  const isEvaluated = p.actual_label !== null && p.actual_label !== undefined;
+                  const isHit = isEvaluated && p.actual_label === p.label_pred;
+
                   return (
                     <React.Fragment key={p.id}>
                       <tr className="hover:bg-slate-800/30 transition-colors">
                         <td className="py-3.5 px-5 font-mono text-xs text-slate-400">
-                          {new Date(p.ts).toLocaleString()}
+                          {new Date(p.data_cutoff_ts || p.ts).toLocaleString()}
                         </td>
                         <td className="py-3.5 px-5">
                           <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-bold font-mono text-xs">
                             {p.symbol}
                           </span>
+                        </td>
+                        <td className="py-3.5 px-5 font-mono text-xs text-slate-300">
+                          {targetSessionFormatted}
                         </td>
                         <td className="py-3.5 px-5">
                           <span
@@ -218,6 +234,23 @@ export function PredictionsTable({ initialPredictions }: PredictionsTableProps) 
                             <span className="font-semibold text-white">{scoreFormatted}</span>
                           </div>
                         </td>
+                        <td className="py-3.5 px-5 text-center">
+                          {isEvaluated ? (
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-mono font-bold ${
+                                isHit
+                                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                  : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                              }`}
+                            >
+                              {isHit ? '✓ HIT' : '✗ MISS'}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-mono bg-slate-800 text-slate-400">
+                              Pending
+                            </span>
+                          )}
+                        </td>
                         <td className="py-3.5 px-5">
                           <span className="text-xs font-mono text-slate-300 bg-slate-800/60 px-2 py-0.5 rounded border border-slate-700/60">
                             {p.model_version}
@@ -236,7 +269,7 @@ export function PredictionsTable({ initialPredictions }: PredictionsTableProps) 
 
                       {isExpanded && (
                         <tr>
-                          <td colSpan={6} className="bg-slate-950/90 px-6 py-4 border-b border-slate-800/80">
+                          <td colSpan={8} className="bg-slate-950/90 px-6 py-4 border-b border-slate-800/80">
                             <div className="rounded-xl border border-slate-800 bg-[#060910] p-4 text-xs font-mono space-y-2">
                               <div className="text-[11px] uppercase tracking-wider text-slate-400">
                                 Model Prediction Record Metadata
@@ -251,12 +284,28 @@ export function PredictionsTable({ initialPredictions }: PredictionsTableProps) 
                                   <div className="text-emerald-400 font-bold mt-0.5">{isUp ? 'UP (Class 1)' : 'DOWN (Class 0)'}</div>
                                 </div>
                                 <div>
+                                  <span className="text-slate-400">Target Session:</span>
+                                  <div className="text-white mt-0.5">{targetSessionFormatted}</div>
+                                </div>
+                                <div>
+                                  <span className="text-slate-400">Actual Realized Close:</span>
+                                  <div className="text-white mt-0.5">{p.actual_close !== null && p.actual_close !== undefined ? `$${p.actual_close.toFixed(2)}` : '—'}</div>
+                                </div>
+                                <div>
                                   <span className="text-slate-400">Raw Model Score:</span>
                                   <div className="text-white mt-0.5">{p.score}</div>
                                 </div>
                                 <div>
                                   <span className="text-slate-400">Model Version Tag:</span>
                                   <div className="text-white mt-0.5">{p.model_version}</div>
+                                </div>
+                                <div>
+                                  <span className="text-slate-400">Generated At:</span>
+                                  <div className="text-white mt-0.5">{p.generated_at ? new Date(p.generated_at).toLocaleString() : '—'}</div>
+                                </div>
+                                <div>
+                                  <span className="text-slate-400">Evaluated At:</span>
+                                  <div className="text-white mt-0.5">{p.evaluated_at ? new Date(p.evaluated_at).toLocaleString() : '—'}</div>
                                 </div>
                               </div>
                             </div>

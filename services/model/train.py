@@ -16,6 +16,12 @@ from packages.shared.logging import get_logger
 from packages.shared.models import Prediction
 from services.model.features import FEATURE_COLUMNS, build_feature_matrix
 from services.model.metrics import accuracy, log_loss
+from services.signal.validation import (
+    exchange_for_symbol,
+    get_exchange_local_date,
+    get_next_trading_session_date,
+    is_trading_day,
+)
 
 log = get_logger(__name__)
 
@@ -86,6 +92,13 @@ def _fit_model(X: pd.DataFrame, y: pd.Series, params: dict | None = None) -> XGB
     return model
 
 
+def _next_trading_session(ts: dt.datetime | dt.date, symbol: str) -> dt.date:
+    """Return the next trading day after the bar timestamp for the symbol's exchange."""
+    exch = exchange_for_symbol(symbol)
+    base_date = get_exchange_local_date(ts, exchange=exch)
+    return get_next_trading_session_date(base_date, exchange=exch)
+
+
 def _write_predictions(
     session: Session,
     model_version: str,
@@ -93,16 +106,21 @@ def _write_predictions(
 ) -> int:
     if val_predictions.empty:
         return 0
-    rows = [
-        {
-            "symbol": str(r.symbol),
-            "ts": r.ts.to_pydatetime() if hasattr(r.ts, "to_pydatetime") else r.ts,
-            "model_version": model_version,
-            "score": float(r.score),
-            "label_pred": int(r.label_pred),
-        }
-        for r in val_predictions.itertuples(index=False)
-    ]
+    rows = []
+    for r in val_predictions.itertuples(index=False):
+        ts_val = r.ts.to_pydatetime() if hasattr(r.ts, "to_pydatetime") else r.ts
+        sym = str(r.symbol)
+        rows.append(
+            {
+                "symbol": sym,
+                "ts": ts_val,
+                "model_version": model_version,
+                "score": float(r.score),
+                "label_pred": int(r.label_pred),
+                "target_session": _next_trading_session(ts_val, sym),
+                "data_cutoff_ts": ts_val,
+            }
+        )
     return upsert_ignore(
         session, Prediction.__table__, rows, ["symbol", "ts", "model_version"]
     )

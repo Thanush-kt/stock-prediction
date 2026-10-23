@@ -7,6 +7,7 @@ const BADGE: Record<Signal['decision'], string> = {
   BUY: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
   SELL: 'bg-rose-500/20 text-rose-300 border border-rose-500/30',
   HOLD: 'bg-slate-800 text-slate-300 border border-slate-700',
+  NO_TRADE: 'bg-amber-500/15 text-amber-300 border border-amber-500/30',
 };
 
 export function SignalsTable({ signals }: { signals: Signal[] }) {

@@ -532,6 +532,13 @@ def run_once(  # pylint: disable=too-many-branches,too-many-locals,too-many-stat
             session.commit()
             if sig is None:
                 continue
+            _BROKER_INELIGIBLE_SUFFIXES = (".NS", "-USD", "=F", ".BO")
+            if any(sym_str.endswith(s) for s in _BROKER_INELIGIBLE_SUFFIXES):
+                log.info(
+                    "Symbol %s is not Alpaca-eligible; signal generated but no order placed",
+                    sym_str,
+                )
+                continue
             if decision.decision in ("BUY", "SELL"):
                 submitted_qty = _submit_order(
                     session,

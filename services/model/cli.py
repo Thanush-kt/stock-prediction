@@ -12,6 +12,7 @@ from services.model.backtest import (
     DEFAULT_THRESHOLD,
     run_backtest,
 )
+from services.model.evaluate import evaluate_outcomes
 from services.model.predict import predict as predict_fn
 from services.model.train import train as train_fn
 
@@ -75,3 +76,20 @@ def register(app: typer.Typer) -> None:
             f"total_return={result.total_return:.3f} max_dd={result.max_drawdown:.3f} "
             f"hit_rate={result.hit_rate:.3f} n_trades={result.n_trades}"
         )
+
+    @app.command("evaluate-outcomes")
+    def evaluate_outcomes_cmd(
+        as_of: str | None = typer.Option(None, help="ISO date (YYYY-MM-DD); defaults to today UTC."),
+        symbol: str | None = typer.Option(None, help="Filter to a specific symbol."),
+        model_version: str | None = typer.Option(None, help="Filter to a specific model version."),
+    ) -> None:
+        as_of_date = dt.date.fromisoformat(as_of) if as_of else None
+        with session_scope() as session:
+            count = evaluate_outcomes(
+                session,
+                as_of=as_of_date,
+                symbol=symbol,
+                model_version=model_version,
+            )
+        typer.echo(f"evaluated {count} predictions")
+

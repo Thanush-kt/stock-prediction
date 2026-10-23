@@ -12,7 +12,7 @@ from packages.shared.db import upsert_ignore
 from packages.shared.logging import get_logger
 from packages.shared.models import Prediction
 from services.model.features import build_feature_matrix
-from services.model.train import MODELS_DIR
+from services.model.train import MODELS_DIR, _next_trading_session
 
 log = get_logger(__name__)
 
@@ -46,16 +46,21 @@ def predict(
     proba = model.predict_proba(df[feature_columns])[:, 1]
     labels = (proba >= 0.5).astype(int)
 
-    rows = [
-        {
-            "symbol": str(s),
-            "ts": ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts,
-            "model_version": model_version,
-            "score": float(p),
-            "label_pred": int(label),
-        }
-        for s, ts, p, label in zip(df["symbol"], df["ts"], proba, labels)
-    ]
+    rows = []
+    for s, ts, p, label in zip(df["symbol"], df["ts"], proba, labels):
+        ts_val = ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
+        sym = str(s)
+        rows.append(
+            {
+                "symbol": sym,
+                "ts": ts_val,
+                "model_version": model_version,
+                "score": float(p),
+                "label_pred": int(label),
+                "target_session": _next_trading_session(ts_val, sym),
+                "data_cutoff_ts": ts_val,
+            }
+        )
     inserted = upsert_ignore(
         session, Prediction.__table__, rows, ["symbol", "ts", "model_version"]
     )

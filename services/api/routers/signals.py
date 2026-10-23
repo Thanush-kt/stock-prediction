@@ -17,11 +17,14 @@ router = APIRouter()
 @router.get("/signals", response_model=list[SignalOut])
 def list_signals(
     limit: int = Query(50, ge=1, le=500),
-    decision: Literal["BUY", "SELL", "HOLD"] | None = None,
+    decision: Literal["BUY", "SELL", "HOLD", "NO_TRADE"] | None = None,
+    symbol: str | None = None,
     session: Session = Depends(get_session),
 ) -> list[SignalOut]:
     stmt = select(Signal).order_by(Signal.ts.desc()).limit(limit)
     if decision is not None:
         stmt = stmt.where(Signal.decision == decision)
+    if symbol is not None:
+        stmt = stmt.where(Signal.symbol == symbol.upper())
     rows = session.execute(stmt).scalars().all()
     return [SignalOut.model_validate(r) for r in rows]

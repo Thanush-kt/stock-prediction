@@ -6,6 +6,7 @@ import datetime as dt
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -124,12 +125,46 @@ class Prediction(Base):
     score: Mapped[float] = mapped_column(Float, nullable=False)
     label_pred: Mapped[int] = mapped_column(Integer, nullable=False)
 
+    # --- Phase 4 additions (migration 0005) -----------------------------------
+    # target_session: the trading session this prediction applies to.
+    # It is the next trading day after ts (data cutoff bar timestamp).
+    target_session: Mapped[dt.date | None] = mapped_column(
+        Date, nullable=True,
+        comment="Next trading session after the data-cutoff bar (set by train/predict)"
+    )
+    # Explicit semantic alias for ts so callers are unambiguous.
+    data_cutoff_ts: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="Alias of ts — the last bar timestamp used as model input"
+    )
+    # Wall-clock timestamp when this row was written to the DB.
+    generated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+        comment="Wall-clock time when this prediction row was written"
+    )
+    # Outcome tracking — filled by the evaluate-outcomes job.
+    actual_close: Mapped[float | None] = mapped_column(
+        Float, nullable=True,
+        comment="Actual closing price on target_session (set by evaluate-outcomes)"
+    )
+    actual_label: Mapped[int | None] = mapped_column(
+        Integer, nullable=True,
+        comment="1 if actual_close > data-cutoff close, else 0 (set by evaluate-outcomes)"
+    )
+    evaluated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="When actual_label was set by the evaluate-outcomes job"
+    )
+    # -------------------------------------------------------------------------
+
     __table_args__ = (
         UniqueConstraint(
             "symbol", "ts", "model_version", name="uq_predictions_symbol_ts_model"
         ),
         Index("ix_predictions_symbol_ts", "symbol", "ts"),
         Index("ix_predictions_model_version", "model_version"),
+        Index("ix_predictions_target_session", "target_session"),
+        Index("ix_predictions_evaluated_at", "evaluated_at"),
     )
 
 

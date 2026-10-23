@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+import numpy as np
 import pandas as pd
 import yfinance as yf
 from sqlalchemy import select
@@ -13,6 +14,61 @@ from packages.shared.logging import get_logger
 from packages.shared.models import PriceBar, Ticker
 
 log = get_logger(__name__)
+
+
+def validate_ticker(symbol: str) -> None:
+    """Validate that *symbol* exists on yfinance. Raises ValueError if invalid."""
+    ticker = yf.Ticker(symbol)
+    try:
+        fast = ticker.fast_info
+        price = getattr(fast, "last_price", None)
+        if price is None or price != price:  # None or NaN
+            raise ValueError(f"Symbol '{symbol}' not found or has no price data")
+    except Exception as exc:
+        if isinstance(exc, ValueError):
+            raise
+        raise ValueError(f"Symbol '{symbol}' validation failed: {exc}") from exc
+
+
+def validate_bars(df: pd.DataFrame, symbol: str = "") -> pd.DataFrame:
+    """Filter out rows with NaN, infinite, non-positive prices, negative volume,
+    or OHLC inconsistencies (high < low, high < open, high < close, low > open, low > close).
+
+    Logs a warning if any rows are dropped.
+    """
+    if df.empty:
+        return df
+
+    required_cols = ["open", "high", "low", "close", "volume"]
+    if not all(col in df.columns for col in required_cols):
+        return df
+
+    # Coerce to numeric in case any column has object/string type
+    numeric_df = df[required_cols].apply(pd.to_numeric, errors="coerce")
+
+    # Check finite, positive prices, non-negative volume, and OHLC consistency
+    valid = (
+        np.isfinite(numeric_df["open"]) & (numeric_df["open"] > 0)
+        & np.isfinite(numeric_df["high"]) & (numeric_df["high"] > 0)
+        & np.isfinite(numeric_df["low"]) & (numeric_df["low"] > 0)
+        & np.isfinite(numeric_df["close"]) & (numeric_df["close"] > 0)
+        & np.isfinite(numeric_df["volume"]) & (numeric_df["volume"] >= 0)
+        & (numeric_df["high"] >= numeric_df["low"])
+        & (numeric_df["high"] >= numeric_df["open"])
+        & (numeric_df["high"] >= numeric_df["close"])
+        & (numeric_df["low"] <= numeric_df["open"])
+        & (numeric_df["low"] <= numeric_df["close"])
+    )
+
+    rejected_count = int((~valid).sum())
+    if rejected_count > 0:
+        log.warning(
+            "Rejected %d invalid OHLCV row(s) for symbol %s (NaN/Inf, non-positive price, negative volume, or OHLC inconsistency)",
+            rejected_count,
+            symbol or "unknown",
+        )
+
+    return df[valid].copy()
 
 
 def fetch_ohlcv(symbol: str, start: dt.date, end: dt.date | None = None) -> pd.DataFrame:
@@ -41,7 +97,7 @@ def fetch_ohlcv(symbol: str, start: dt.date, end: dt.date | None = None) -> pd.D
         df.index = df.index.tz_localize("UTC")
     else:
         df.index = df.index.tz_convert("UTC")
-    return df
+    return validate_bars(df, symbol=symbol)
 
 
 def ensure_ticker(session: Session, symbol: str) -> None:
@@ -55,11 +111,14 @@ def upsert_bars(session: Session, symbol: str, df: pd.DataFrame) -> int:
     """Insert bars idempotently. Returns count of newly-inserted rows."""
     if df.empty:
         return 0
+    clean_df = validate_bars(df, symbol=symbol)
+    if clean_df.empty:
+        return 0
     ensure_ticker(session, symbol)
     rows = [
         {
             "symbol": symbol,
-            "ts": ts.to_pydatetime(),
+            "ts": ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts,
             "open": float(row["open"]),
             "high": float(row["high"]),
             "low": float(row["low"]),
@@ -67,7 +126,7 @@ def upsert_bars(session: Session, symbol: str, df: pd.DataFrame) -> int:
             "volume": float(row["volume"]),
             "source": "yfinance",
         }
-        for ts, row in df.iterrows()
+        for ts, row in clean_df.iterrows()
     ]
     return upsert_ignore(session, PriceBar.__table__, rows, ["symbol", "ts"])
 
